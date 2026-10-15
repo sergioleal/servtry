@@ -1,3 +1,5 @@
+import { timingSafeEqual } from 'node:crypto';
+import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
 import { entities } from './entities.js';
@@ -122,14 +124,43 @@ function emprestimosRouter(db) {
   return router;
 }
 
-export function createApp(db) {
+function safeEqual(a, b) {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
+
+// HTTP Basic Auth simples para quando o app fica exposto fora do localhost.
+function basicAuth({ user, pass }) {
+  return (req, res, next) => {
+    const [scheme, encoded] = (req.headers.authorization ?? '').split(' ');
+    if (scheme === 'Basic' && encoded) {
+      const decoded = Buffer.from(encoded, 'base64').toString();
+      const sep = decoded.indexOf(':');
+      if (sep >= 0 && safeEqual(decoded.slice(0, sep), user) && safeEqual(decoded.slice(sep + 1), pass)) {
+        return next();
+      }
+    }
+    res.set('WWW-Authenticate', 'Basic realm="Biblioteca", charset="UTF-8"');
+    res.status(401).send('Autenticação necessária');
+  };
+}
+
+export function createApp(db, { staticDir, auth } = {}) {
   const app = express();
+  if (auth) app.use(basicAuth(auth));
   app.use(cors());
   app.use(express.json());
 
   for (const [table, fields] of Object.entries(entities)) {
     const router = table === 'emprestimos' ? emprestimosRouter(db) : crudRouter(db, table, fields);
     app.use(`/api/${table}`, router);
+  }
+
+  // Em produção a própria API serve o build do React (client/dist).
+  if (staticDir) {
+    app.use(express.static(staticDir));
+    app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.resolve(staticDir, 'index.html')));
   }
 
   app.use((err, req, res, next) => {

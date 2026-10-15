@@ -18,3 +18,15 @@ cd client && npm install && npm run dev   # UI em http://localhost:5173 (proxy d
 ```
 
 Testes da API: `cd server && npm test`.
+
+## Expondo publicamente
+
+A API pode servir o build do React e exigir usuário/senha (HTTP Basic Auth):
+
+```bash
+cd client && npm run build
+cd server && HOST=0.0.0.0 PORT=8080 STATIC_DIR=../client/dist \
+  BASIC_AUTH_USER=admin BASIC_AUTH_PASS='<senha>' npm start
+```
+
+Sem `BASIC_AUTH_USER` o app fica aberto; o servidor avisa no log quando `HOST` não é `localhost`.

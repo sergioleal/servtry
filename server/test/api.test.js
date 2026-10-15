@@ -66,3 +66,20 @@ test('empréstimo e devolução atualizam o exemplar', async () => {
   assert.equal((await api('GET', `/exemplares/${exemplar.id}`)).body.situacao, 'disponivel');
   assert.equal((await api('POST', `/emprestimos/${emp.body.id}/devolucao`)).status, 409);
 });
+
+test('basic auth bloqueia sem credenciais', async () => {
+  const app = createApp(openDb(':memory:'), { auth: { user: 'admin', pass: 's3nha' } });
+  const srv = await new Promise((resolve) => {
+    const s = app.listen(0, 'localhost', () => resolve(s));
+  });
+  const url = `http://localhost:${srv.address().port}/api/livros`;
+  try {
+    assert.equal((await fetch(url)).status, 401);
+    const wrong = { Authorization: `Basic ${Buffer.from('admin:errada').toString('base64')}` };
+    assert.equal((await fetch(url, { headers: wrong })).status, 401);
+    const ok = { Authorization: `Basic ${Buffer.from('admin:s3nha').toString('base64')}` };
+    assert.equal((await fetch(url, { headers: ok })).status, 200);
+  } finally {
+    srv.close();
+  }
+});
