@@ -1,0 +1,144 @@
+import express from 'express';
+import cors from 'cors';
+import { entities } from './entities.js';
+
+export class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+// Mantém só os campos conhecidos e troca string vazia por null.
+function pick(body, fields) {
+  const out = {};
+  for (const f of fields) {
+    if (body?.[f] !== undefined) out[f] = body[f] === '' ? null : body[f];
+  }
+  return out;
+}
+
+function insert(db, table, data) {
+  const cols = Object.keys(data);
+  if (cols.length === 0) throw new HttpError(400, 'Nenhum campo informado');
+  const sql = `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`;
+  const { lastInsertRowid } = db.prepare(sql).run(...Object.values(data));
+  return db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(lastInsertRowid);
+}
+
+function update(db, table, id, data) {
+  const cols = Object.keys(data);
+  if (cols.length > 0) {
+    const sql = `UPDATE ${table} SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`;
+    db.prepare(sql).run(...Object.values(data), id);
+  }
+  return db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
+}
+
+function transaction(db, fn) {
+  db.exec('BEGIN');
+  try {
+    const result = fn();
+    db.exec('COMMIT');
+    return result;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+function crudRouter(db, table, fields) {
+  const router = express.Router();
+  const find = (id) => {
+    const row = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
+    if (!row) throw new HttpError(404, 'Registro não encontrado');
+    return row;
+  };
+
+  router.get('/', (req, res) => {
+    res.json(db.prepare(`SELECT * FROM ${table} ORDER BY id`).all());
+  });
+  router.get('/:id', (req, res) => res.json(find(req.params.id)));
+  router.post('/', (req, res) => res.status(201).json(insert(db, table, pick(req.body, fields))));
+  router.put('/:id', (req, res) => {
+    find(req.params.id);
+    res.json(update(db, table, req.params.id, pick(req.body, fields)));
+  });
+  router.delete('/:id', (req, res) => {
+    find(req.params.id);
+    db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(req.params.id);
+    res.status(204).end();
+  });
+  return router;
+}
+
+// Empréstimos têm regras próprias: só empresta exemplar disponível
+// e a devolução libera o exemplar de novo.
+function emprestimosRouter(db) {
+  const router = express.Router();
+  const fields = entities.emprestimos.filter((f) => f !== 'data_devolucao');
+
+  router.post('/', (req, res) => {
+    const data = pick(req.body, fields);
+    const emprestimo = transaction(db, () => {
+      const exemplar = db.prepare('SELECT * FROM exemplares WHERE id = ?').get(data.exemplar_id);
+      if (!exemplar) throw new HttpError(400, 'Exemplar não encontrado');
+      if (exemplar.situacao !== 'disponivel') {
+        throw new HttpError(409, `Exemplar ${exemplar.codigo} não está disponível (${exemplar.situacao})`);
+      }
+      const row = insert(db, 'emprestimos', data);
+      db.prepare("UPDATE exemplares SET situacao = 'emprestado' WHERE id = ?").run(exemplar.id);
+      return row;
+    });
+    res.status(201).json(emprestimo);
+  });
+
+  router.post('/:id/devolucao', (req, res) => {
+    const emprestimo = transaction(db, () => {
+      const row = db.prepare('SELECT * FROM emprestimos WHERE id = ?').get(req.params.id);
+      if (!row) throw new HttpError(404, 'Registro não encontrado');
+      if (row.data_devolucao) throw new HttpError(409, 'Empréstimo já devolvido');
+      db.prepare("UPDATE emprestimos SET data_devolucao = date('now') WHERE id = ?").run(row.id);
+      db.prepare("UPDATE exemplares SET situacao = 'disponivel' WHERE id = ?").run(row.exemplar_id);
+      return db.prepare('SELECT * FROM emprestimos WHERE id = ?').get(row.id);
+    });
+    res.json(emprestimo);
+  });
+
+  router.delete('/:id', (req, res) => {
+    transaction(db, () => {
+      const row = db.prepare('SELECT * FROM emprestimos WHERE id = ?').get(req.params.id);
+      if (!row) throw new HttpError(404, 'Registro não encontrado');
+      if (!row.data_devolucao) {
+        db.prepare("UPDATE exemplares SET situacao = 'disponivel' WHERE id = ?").run(row.exemplar_id);
+      }
+      db.prepare('DELETE FROM emprestimos WHERE id = ?').run(row.id);
+    });
+    res.status(204).end();
+  });
+
+  // Depois de criado, só o prazo pode ser editado; o resto passa pelas rotas acima.
+  router.use(crudRouter(db, 'emprestimos', ['data_prevista']));
+  return router;
+}
+
+export function createApp(db) {
+  const app = express();
+  app.use(cors());
+  app.use(express.json());
+
+  for (const [table, fields] of Object.entries(entities)) {
+    const router = table === 'emprestimos' ? emprestimosRouter(db) : crudRouter(db, table, fields);
+    app.use(`/api/${table}`, router);
+  }
+
+  app.use((err, req, res, next) => {
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+    if (err.code === 'ERR_SQLITE_ERROR' && /constraint/i.test(err.message)) {
+      return res.status(409).json({ error: err.message });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Erro interno' });
+  });
+  return app;
+}
