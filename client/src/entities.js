@@ -1,5 +1,6 @@
 // Descrição das 7 entidades para a tela genérica de cadastro.
 // `ref` aponta para outra entidade; `label` diz como mostrar um registro dela.
+// `options` aceita valores simples ou pares [valor, texto].
 export const entities = {
   livros: {
     title: 'Livros',
@@ -49,6 +50,7 @@ export const entities = {
       { name: 'email', label: 'E-mail', type: 'email' },
       { name: 'telefone', label: 'Telefone' },
       { name: 'data_cadastro', label: 'Cadastro', type: 'date' },
+      { name: 'ativo', label: 'Ativo', options: [[1, 'Sim'], [0, 'Não']], default: 1 },
     ],
   },
   autores: {

@@ -5,6 +5,6 @@ export const entities = {
   categorias: ['nome', 'descricao'],
   livros: ['titulo', 'isbn', 'ano_publicacao', 'autor_id', 'editora_id', 'categoria_id'],
   exemplares: ['livro_id', 'codigo', 'localizacao', 'situacao'],
-  leitores: ['nome', 'email', 'telefone', 'data_cadastro'],
+  leitores: ['nome', 'email', 'telefone', 'data_cadastro', 'ativo'],
   emprestimos: ['exemplar_id', 'leitor_id', 'data_emprestimo', 'data_prevista', 'data_devolucao'],
 };

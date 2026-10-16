@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from './api.js'
 import { entities } from './entities.js'
 
+const optionPairs = (options) => options.map((o) => (Array.isArray(o) ? o : [o, o]))
+
 const emptyForm = (fields) => Object.fromEntries(fields.map((f) => [f.name, f.default ?? '']))
 
 export default function CrudPage({ name }) {
@@ -29,6 +31,7 @@ export default function CrudPage({ name }) {
 
   const show = (field, value) => {
     if (value == null || value === '') return '—'
+    if (field.options) return optionPairs(field.options).find(([v]) => v === value)?.[1] ?? value
     if (!field.ref) return value
     const row = refs[field.ref]?.find((r) => r.id === value)
     return row ? entities[field.ref].label(row) : `#${value}`
@@ -82,7 +85,7 @@ export default function CrudPage({ name }) {
     if (f.ref || f.options) {
       const options = f.ref
         ? (refs[f.ref] ?? []).map((r) => [r.id, entities[f.ref].label(r)])
-        : f.options.map((o) => [o, o])
+        : optionPairs(f.options)
       return (
         <select {...common}>
           <option value="">—</option>

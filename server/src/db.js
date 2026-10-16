@@ -52,9 +52,23 @@ CREATE TABLE IF NOT EXISTS emprestimos (
 );
 `;
 
+// Colunas criadas depois da primeira versão. Bancos antigos recebem
+// ALTER TABLE ADD COLUMN, preservando os dados; bancos novos também.
+const NEW_COLUMNS = [
+  ['leitores', 'ativo', 'INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1))'],
+];
+
+function migrate(db) {
+  for (const [table, column, definition] of NEW_COLUMNS) {
+    const exists = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+    if (!exists) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 export function openDb(file = process.env.DB_FILE ?? 'biblioteca.db') {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }

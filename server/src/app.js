@@ -96,6 +96,22 @@ function validarExemplar(db) {
   };
 }
 
+// Aceita true/false além de 0/1 (o SQLite não grava booleanos).
+function validarLeitor(data) {
+  if (typeof data.ativo === 'boolean') data.ativo = Number(data.ativo);
+}
+
+const LIMITE_EMPRESTIMOS = 3;
+const DATA = /^\d{4}-\d{2}-\d{2}$/;
+
+function validarPrazo(dataEmprestimo, dataPrevista) {
+  if (!dataPrevista) throw new HttpError(400, 'Informe o prazo (data_prevista)');
+  if (!DATA.test(dataPrevista)) throw new HttpError(400, 'Prazo inválido; use AAAA-MM-DD');
+  if (dataPrevista < dataEmprestimo) {
+    throw new HttpError(400, `O prazo (${dataPrevista}) não pode ser anterior ao empréstimo (${dataEmprestimo})`);
+  }
+}
+
 // Empréstimos têm regras próprias: só empresta exemplar disponível
 // e a devolução libera o exemplar de novo.
 function emprestimosRouter(db) {
@@ -104,7 +120,19 @@ function emprestimosRouter(db) {
 
   router.post('/', (req, res) => {
     const data = pick(req.body, fields);
+    data.data_emprestimo ??= db.prepare("SELECT date('now', 'localtime') AS hoje").get().hoje;
+    if (!DATA.test(data.data_emprestimo)) throw new HttpError(400, 'Data do empréstimo inválida; use AAAA-MM-DD');
+    validarPrazo(data.data_emprestimo, data.data_prevista);
     const emprestimo = transaction(db, () => {
+      const leitor = db.prepare('SELECT * FROM leitores WHERE id = ?').get(data.leitor_id);
+      if (!leitor) throw new HttpError(400, 'Leitor não encontrado');
+      if (!leitor.ativo) throw new HttpError(409, `Leitor ${leitor.nome} está inativo e não pode pegar empréstimos`);
+      const { abertos } = db
+        .prepare('SELECT count(*) AS abertos FROM emprestimos WHERE leitor_id = ? AND data_devolucao IS NULL')
+        .get(leitor.id);
+      if (abertos >= LIMITE_EMPRESTIMOS) {
+        throw new HttpError(409, `Leitor ${leitor.nome} já tem ${abertos} empréstimos abertos (limite: ${LIMITE_EMPRESTIMOS})`);
+      }
       const exemplar = db.prepare('SELECT * FROM exemplares WHERE id = ?').get(data.exemplar_id);
       if (!exemplar) throw new HttpError(400, 'Exemplar não encontrado');
       if (exemplar.situacao !== 'disponivel') {
@@ -142,7 +170,11 @@ function emprestimosRouter(db) {
   });
 
   // Depois de criado, só o prazo pode ser editado; o resto passa pelas rotas acima.
-  router.use(crudRouter(db, 'emprestimos', ['data_prevista']));
+  router.use(crudRouter(db, 'emprestimos', ['data_prevista'], {
+    validate: (data, atual) => {
+      if (data.data_prevista !== undefined) validarPrazo(atual.data_emprestimo, data.data_prevista);
+    },
+  }));
   return router;
 }
 
@@ -178,6 +210,7 @@ export function createApp(db, { staticDir, auth } = {}) {
     const router =
       table === 'emprestimos' ? emprestimosRouter(db)
       : table === 'exemplares' ? crudRouter(db, table, fields, { validate: validarExemplar(db) })
+      : table === 'leitores' ? crudRouter(db, table, fields, { validate: validarLeitor })
       : crudRouter(db, table, fields);
     app.use(`/api/${table}`, router);
   }
