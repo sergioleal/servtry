@@ -24,6 +24,9 @@ export const entities = {
         name: 'situacao',
         label: 'Situação',
         options: ['disponivel', 'emprestado', 'manutencao', 'perdido'],
+        // 'emprestado' só muda pelas telas de empréstimo/devolução.
+        lockedOptions: ['emprestado'],
+        default: 'disponivel',
       },
     ],
   },

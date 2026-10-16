@@ -49,7 +49,8 @@ function transaction(db, fn) {
   }
 }
 
-function crudRouter(db, table, fields) {
+// `validate(data, atual)` roda antes de gravar; `atual` só existe no PUT.
+function crudRouter(db, table, fields, { validate } = {}) {
   const router = express.Router();
   const find = (id) => {
     const row = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
@@ -61,10 +62,15 @@ function crudRouter(db, table, fields) {
     res.json(db.prepare(`SELECT * FROM ${table} ORDER BY id`).all());
   });
   router.get('/:id', (req, res) => res.json(find(req.params.id)));
-  router.post('/', (req, res) => res.status(201).json(insert(db, table, pick(req.body, fields))));
+  router.post('/', (req, res) => {
+    const data = pick(req.body, fields);
+    validate?.(data);
+    res.status(201).json(insert(db, table, data));
+  });
   router.put('/:id', (req, res) => {
-    find(req.params.id);
-    res.json(update(db, table, req.params.id, pick(req.body, fields)));
+    const data = pick(req.body, fields);
+    validate?.(data, find(req.params.id));
+    res.json(update(db, table, req.params.id, data));
   });
   router.delete('/:id', (req, res) => {
     find(req.params.id);
@@ -72,6 +78,22 @@ function crudRouter(db, table, fields) {
     res.status(204).end();
   });
   return router;
+}
+
+// A situação 'emprestado' é controlada só pelas rotas de empréstimo e devolução.
+function validarExemplar(db) {
+  return (data, atual) => {
+    if (data.situacao === undefined || data.situacao === atual?.situacao) return;
+    if (data.situacao === 'emprestado') {
+      throw new HttpError(409, "A situação 'emprestado' só é definida ao registrar um empréstimo");
+    }
+    const aberto = atual && db
+      .prepare('SELECT id FROM emprestimos WHERE exemplar_id = ? AND data_devolucao IS NULL')
+      .get(atual.id);
+    if (aberto) {
+      throw new HttpError(409, `Exemplar ${atual.codigo} está no empréstimo #${aberto.id}; registre a devolução antes de mudar a situação`);
+    }
+  };
 }
 
 // Empréstimos têm regras próprias: só empresta exemplar disponível
@@ -153,7 +175,10 @@ export function createApp(db, { staticDir, auth } = {}) {
   app.use(express.json());
 
   for (const [table, fields] of Object.entries(entities)) {
-    const router = table === 'emprestimos' ? emprestimosRouter(db) : crudRouter(db, table, fields);
+    const router =
+      table === 'emprestimos' ? emprestimosRouter(db)
+      : table === 'exemplares' ? crudRouter(db, table, fields, { validate: validarExemplar(db) })
+      : crudRouter(db, table, fields);
     app.use(`/api/${table}`, router);
   }
 

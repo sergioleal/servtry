@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from './api.js'
 import { entities } from './entities.js'
 
-const emptyForm = (fields) => Object.fromEntries(fields.map((f) => [f.name, '']))
+const emptyForm = (fields) => Object.fromEntries(fields.map((f) => [f.name, f.default ?? '']))
 
 export default function CrudPage({ name }) {
   const entity = entities[name]
@@ -87,7 +87,7 @@ export default function CrudPage({ name }) {
         <select {...common}>
           <option value="">—</option>
           {options.map(([value, text]) => (
-            <option key={value} value={value}>
+            <option key={value} value={value} disabled={f.lockedOptions?.includes(value)}>
               {text}
             </option>
           ))}
