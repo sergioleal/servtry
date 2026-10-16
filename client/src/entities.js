@@ -53,6 +53,7 @@ export const entities = {
         badge: (r) => r.atrasado && 'Atrasado',
       },
       { name: 'data_devolucao', label: 'Devolução', type: 'date', readOnly: true },
+      { name: 'renovacoes', label: 'Renovações', type: 'number', readOnly: true },
     ],
   },
   leitores: {

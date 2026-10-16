@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS emprestimos (
 // ALTER TABLE ADD COLUMN, preservando os dados; bancos novos também.
 const NEW_COLUMNS = [
   ['leitores', 'ativo', 'INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1))'],
+  ['emprestimos', 'renovacoes', 'INTEGER NOT NULL DEFAULT 0'],
 ];
 
 function migrate(db) {

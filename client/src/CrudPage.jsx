@@ -167,6 +167,22 @@ export default function CrudPage({ name }) {
                       Devolver
                     </button>
                   )}
+                  {name === 'emprestimos' && !row.data_devolucao && (
+                    <button
+                      className="secondary"
+                      disabled={row.atrasado || row.renovacoes >= 2}
+                      title={
+                        row.atrasado
+                          ? 'Empréstimo atrasado não pode ser renovado'
+                          : row.renovacoes >= 2
+                            ? 'Limite de 2 renovações atingido'
+                            : 'Estende o prazo para hoje + 14 dias'
+                      }
+                      onClick={() => run(() => api('POST', `emprestimos/${row.id}/renovacao`))}
+                    >
+                      Renovar
+                    </button>
+                  )}
                   <button className="secondary" onClick={() => edit(row)}>
                     Editar
                   </button>

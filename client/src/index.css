@@ -51,6 +51,7 @@ button {
 }
 button.secondary { background: var(--border); color: var(--text); }
 button.danger { background: var(--danger); }
+button:disabled { opacity: .5; cursor: not-allowed; }
 .error { color: var(--danger); }
 .table-wrap { overflow-x: auto; margin-top: 16px; }
 table { width: 100%; border-collapse: collapse; background: var(--panel); }

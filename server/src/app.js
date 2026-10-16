@@ -102,6 +102,8 @@ function validarLeitor(data) {
 }
 
 const LIMITE_EMPRESTIMOS = 3;
+const LIMITE_RENOVACOES = 2;
+const DIAS_RENOVACAO = 14;
 const HOJE = "date('now', 'localtime')";
 
 // `atrasado` é calculado: aberto e com o prazo já vencido.
@@ -181,6 +183,23 @@ function emprestimosRouter(db) {
       return find(row.id);
     });
     res.json(emprestimo);
+  });
+
+  // Novo prazo = hoje + 14 dias (nunca encurta um prazo que já seja maior).
+  router.post('/:id/renovacao', (req, res) => {
+    const row = find(req.params.id);
+    if (row.data_devolucao) throw new HttpError(409, 'Empréstimo já devolvido não pode ser renovado');
+    if (row.atrasado) {
+      throw new HttpError(409, `Empréstimo atrasado (prazo era ${row.data_prevista}) não pode ser renovado; registre a devolução`);
+    }
+    if (row.renovacoes >= LIMITE_RENOVACOES) {
+      throw new HttpError(409, `Empréstimo já foi renovado ${row.renovacoes} vezes (limite: ${LIMITE_RENOVACOES})`);
+    }
+    db.prepare(`UPDATE emprestimos
+      SET data_prevista = max(data_prevista, date('now', 'localtime', '+${DIAS_RENOVACAO} days')),
+          renovacoes = renovacoes + 1
+      WHERE id = ?`).run(row.id);
+    res.json(find(row.id));
   });
 
   router.delete('/:id', (req, res) => {
