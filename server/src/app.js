@@ -102,6 +102,16 @@ function validarLeitor(data) {
 }
 
 const LIMITE_EMPRESTIMOS = 3;
+const HOJE = "date('now', 'localtime')";
+
+// `atrasado` é calculado: aberto e com o prazo já vencido.
+const SELECT_EMPRESTIMOS = `SELECT *, (data_devolucao IS NULL AND data_prevista < ${HOJE}) AS atrasado FROM emprestimos`;
+const FILTROS_STATUS = {
+  abertos: 'data_devolucao IS NULL',
+  atrasados: `data_devolucao IS NULL AND data_prevista < ${HOJE}`,
+  devolvidos: 'data_devolucao IS NOT NULL',
+};
+const comAtrasado = (row) => row && { ...row, atrasado: Boolean(row.atrasado) };
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
 
 function validarPrazo(dataEmprestimo, dataPrevista) {
@@ -117,10 +127,26 @@ function validarPrazo(dataEmprestimo, dataPrevista) {
 function emprestimosRouter(db) {
   const router = express.Router();
   const fields = entities.emprestimos.filter((f) => f !== 'data_devolucao');
+  const find = (id) => {
+    const row = comAtrasado(db.prepare(`${SELECT_EMPRESTIMOS} WHERE id = ?`).get(id));
+    if (!row) throw new HttpError(404, 'Registro não encontrado');
+    return row;
+  };
+
+  // ?status=abertos|atrasados|devolvidos (atrasados também contam como abertos).
+  router.get('/', (req, res) => {
+    const { status } = req.query;
+    if (status !== undefined && !Object.hasOwn(FILTROS_STATUS, status)) {
+      throw new HttpError(400, `status inválido; use ${Object.keys(FILTROS_STATUS).join(', ')}`);
+    }
+    const where = status ? ` WHERE ${FILTROS_STATUS[status]}` : '';
+    res.json(db.prepare(`${SELECT_EMPRESTIMOS}${where} ORDER BY id`).all().map(comAtrasado));
+  });
+  router.get('/:id', (req, res) => res.json(find(req.params.id)));
 
   router.post('/', (req, res) => {
     const data = pick(req.body, fields);
-    data.data_emprestimo ??= db.prepare("SELECT date('now', 'localtime') AS hoje").get().hoje;
+    data.data_emprestimo ??= db.prepare(`SELECT ${HOJE} AS hoje`).get().hoje;
     if (!DATA.test(data.data_emprestimo)) throw new HttpError(400, 'Data do empréstimo inválida; use AAAA-MM-DD');
     validarPrazo(data.data_emprestimo, data.data_prevista);
     const emprestimo = transaction(db, () => {
@@ -140,7 +166,7 @@ function emprestimosRouter(db) {
       }
       const row = insert(db, 'emprestimos', data);
       db.prepare("UPDATE exemplares SET situacao = 'emprestado' WHERE id = ?").run(exemplar.id);
-      return row;
+      return find(row.id);
     });
     res.status(201).json(emprestimo);
   });
@@ -150,9 +176,9 @@ function emprestimosRouter(db) {
       const row = db.prepare('SELECT * FROM emprestimos WHERE id = ?').get(req.params.id);
       if (!row) throw new HttpError(404, 'Registro não encontrado');
       if (row.data_devolucao) throw new HttpError(409, 'Empréstimo já devolvido');
-      db.prepare("UPDATE emprestimos SET data_devolucao = date('now') WHERE id = ?").run(row.id);
+      db.prepare(`UPDATE emprestimos SET data_devolucao = ${HOJE} WHERE id = ?`).run(row.id);
       db.prepare("UPDATE exemplares SET situacao = 'disponivel' WHERE id = ?").run(row.exemplar_id);
-      return db.prepare('SELECT * FROM emprestimos WHERE id = ?').get(row.id);
+      return find(row.id);
     });
     res.json(emprestimo);
   });
@@ -170,11 +196,13 @@ function emprestimosRouter(db) {
   });
 
   // Depois de criado, só o prazo pode ser editado; o resto passa pelas rotas acima.
-  router.use(crudRouter(db, 'emprestimos', ['data_prevista'], {
-    validate: (data, atual) => {
-      if (data.data_prevista !== undefined) validarPrazo(atual.data_emprestimo, data.data_prevista);
-    },
-  }));
+  router.put('/:id', (req, res) => {
+    const atual = find(req.params.id);
+    const data = pick(req.body, ['data_prevista']);
+    if (data.data_prevista !== undefined) validarPrazo(atual.data_emprestimo, data.data_prevista);
+    update(db, 'emprestimos', atual.id, data);
+    res.json(find(atual.id));
+  });
   return router;
 }
 

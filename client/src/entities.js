@@ -1,6 +1,7 @@
 // Descrição das 7 entidades para a tela genérica de cadastro.
 // `ref` aponta para outra entidade; `label` diz como mostrar um registro dela.
 // `options` aceita valores simples ou pares [valor, texto].
+// `filter` vira um select acima da tabela que manda ?<param>=<valor> no GET.
 export const entities = {
   livros: {
     title: 'Livros',
@@ -34,11 +35,23 @@ export const entities = {
   emprestimos: {
     title: 'Empréstimos',
     label: (r) => `#${r.id}`,
+    rowClass: (r) => (r.atrasado ? 'atrasado' : undefined),
+    filter: {
+      param: 'status',
+      label: 'Situação',
+      options: [['', 'Todos'], ['abertos', 'Abertos'], ['atrasados', 'Atrasados'], ['devolvidos', 'Devolvidos']],
+    },
     fields: [
       { name: 'exemplar_id', label: 'Exemplar', ref: 'exemplares', required: true, createOnly: true },
       { name: 'leitor_id', label: 'Leitor', ref: 'leitores', required: true, createOnly: true },
       { name: 'data_emprestimo', label: 'Empréstimo', type: 'date', createOnly: true },
-      { name: 'data_prevista', label: 'Prazo', type: 'date', required: true },
+      {
+        name: 'data_prevista',
+        label: 'Prazo',
+        type: 'date',
+        required: true,
+        badge: (r) => r.atrasado && 'Atrasado',
+      },
       { name: 'data_devolucao', label: 'Devolução', type: 'date', readOnly: true },
     ],
   },

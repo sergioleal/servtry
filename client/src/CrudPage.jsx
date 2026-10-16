@@ -13,17 +13,19 @@ export default function CrudPage({ name }) {
   const [form, setForm] = useState(() => emptyForm(entity.fields))
   const [editingId, setEditingId] = useState(null)
   const [error, setError] = useState('')
+  const [filter, setFilter] = useState('')
 
   const load = useCallback(async () => {
     try {
-      setRows(await api('GET', name))
+      const query = filter ? `?${new URLSearchParams({ [entity.filter.param]: filter })}` : ''
+      setRows(await api('GET', name + query))
       const refNames = [...new Set(entity.fields.filter((f) => f.ref).map((f) => f.ref))]
       const lists = await Promise.all(refNames.map((r) => api('GET', r)))
       setRefs(Object.fromEntries(refNames.map((r, i) => [r, lists[i]])))
     } catch (err) {
       setError(err.message)
     }
-  }, [name, entity])
+  }, [name, entity, filter])
 
   useEffect(() => {
     load()
@@ -125,6 +127,19 @@ export default function CrudPage({ name }) {
 
       {error && <p className="error">{error}</p>}
 
+      {entity.filter && (
+        <label className="filter">
+          {entity.filter.label}
+          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+            {entity.filter.options.map(([value, text]) => (
+              <option key={value} value={value}>
+                {text}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
       <div className="table-wrap">
         <table>
           <thead>
@@ -138,10 +153,13 @@ export default function CrudPage({ name }) {
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id}>
+              <tr key={row.id} className={entity.rowClass?.(row)}>
                 <td>{row.id}</td>
                 {entity.fields.map((f) => (
-                  <td key={f.name}>{show(f, row[f.name])}</td>
+                  <td key={f.name}>
+                    {show(f, row[f.name])}
+                    {f.badge?.(row) && <span className="badge">{f.badge(row)}</span>}
+                  </td>
                 ))}
                 <td className="row-actions">
                   {name === 'emprestimos' && !row.data_devolucao && (
